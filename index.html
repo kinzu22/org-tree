@@ -1,80 +1,57 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Organization Directory Tree</title>
-        <!-- Tailwind CSS for styling -->
-        <script src="https://cdn.tailwindcss.com"></script>
-        <!-- jQuery for jsTree -->
+        <title>Cây Tổ Chức</title>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
-        <!-- jsTree for tree rendering -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.0/xlsx.full.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
         <link
             rel="stylesheet"
             href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css"
         />
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
-        <!-- SheetJS for XLSX parsing -->
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-        <!-- PapaParse for CSV parsing -->
-        <script src="https://unpkg.com/papaparse@latest/papaparse.min.js"></script>
-        <style>
-            #tree-container {
-                max-height: 80vh;
-                overflow-y: auto;
-            }
-            .jstree-themeicon {
-                margin-right: 5px;
-            }
-            /* Adjust node text styling for readability */
-            .jstree-anchor {
-                font-size: 14px;
-                white-space: nowrap;
-            }
-        </style>
+        <script src="https://cdn.tailwindcss.com"></script>
     </head>
     <body class="bg-gray-100 font-sans">
-        <div class="container mx-auto p-6">
-            <h1 class="text-3xl font-bold text-center text-blue-800 mb-6">
-                Organization Directory Tree
-            </h1>
+        <div class="container mx-auto p-4">
+            <h1 class="text-2xl font-bold mb-4">Cây Tổ Chức</h1>
 
-            <!-- File upload input -->
             <div class="mb-4">
                 <label
                     for="file-upload"
-                    class="block text-sm font-medium text-gray-700 mb-2"
-                    >Upload XLSX File</label
+                    class="block text-sm font-medium text-gray-700"
+                    >Tải lên file XLSX:</label
                 >
                 <input
                     type="file"
                     id="file-upload"
                     accept=".xlsx"
-                    class="w-full p-2 border border-gray-300 rounded-lg"
+                    class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                 />
             </div>
 
-            <!-- Search input -->
             <div class="mb-4">
+                <label
+                    for="search-input"
+                    class="block text-sm font-medium text-gray-700"
+                    >Tìm kiếm:</label
+                >
                 <input
                     type="text"
                     id="search-input"
-                    class="w-full p-2 border border-gray-300 rounded-lg"
-                    placeholder="Search units..."
                     disabled
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50"
+                    placeholder="Nhập mã phòng ban, tên phòng ban, khối hoặc unit..."
                 />
             </div>
 
-            <!-- Status message -->
-            <div id="status" class="text-center text-gray-600 mb-4">
-                Please upload an XLSX file to display the organizational
-                structure.
-            </div>
+            <div id="status" class="mb-4 text-sm"></div>
 
-            <!-- Tree container -->
             <div
                 id="tree-container"
-                class="bg-white p-4 rounded-lg shadow-lg hidden"
+                class="bg-white p-4 rounded-lg shadow hidden"
             ></div>
         </div>
 
@@ -93,34 +70,142 @@
 
             // Process and clean data
             function processAndCleanData(data) {
+                // Clean and validate data
                 const cleanedData = data
                     .map((row) => ({
-                        SetID: row['SetID']?.trim() || '',
-                        ID: row['ID đơn vị']?.trim() || '',
-                        Name: row['Tên đơn vị']?.trim() || '',
-                        ParentID: row['ID đơn vị cha']?.trim() || '',
+                        PhongBanHienTai:
+                            row['Phong ban Hien tai']?.trim() || '',
+                        DonVi: row['Đơn vị']?.trim() || '',
+                        DonViCap2: row['Đơn vị cấp 2']?.trim() || '',
+                        DonViCap3: row['Đơn vị cấp 3']?.trim() || '',
+                        TenPhongBan:
+                            row['Tên phòng ban tại ngày báo cáo']?.trim() || '',
+                        Unit: row['Unit']?.trim() || '',
+                        MaPhongBan: row['Mã phòng ban']?.trim() || '',
+                        Khoi: row['Khối']?.trim() || 'Không xác định',
                     }))
-                    .filter((row) => row.ID && row.Name);
+                    .filter(
+                        (row) => row.MaPhongBan && row.TenPhongBan && row.Unit
+                    );
 
+                // Get unique Unit and Khoi combinations
+                const uniqueUnits = [
+                    ...new Set(cleanedData.map((row) => row.Unit)),
+                ];
+                const unitKhoiPairs = [
+                    ...new Set(
+                        cleanedData.map((row) => `${row.Unit}|${row.Khoi}`)
+                    ),
+                ];
+
+                // Initialize node map
                 const nodeMap = new Map();
-                cleanedData.forEach((row) => {
-                    nodeMap.set(row.ID, {
-                        id: row.ID,
-                        text: `${row.SetID} - ${row.Name} (ID: ${
-                            row.ID
-                        }, Parent ID: ${row.ParentID || 'None'})`,
-                        parent: row.ParentID || '#',
-                        data: {
-                            SetID: row.SetID,
-                            UnitID: row.ID,
-                            ParentID: row.ParentID || 'None',
-                        },
+                const parentMap = new Map();
+
+                // Add Unit nodes as top-level
+                uniqueUnits.forEach((unit) => {
+                    const unitId = `UNIT_${unit}`;
+                    nodeMap.set(unitId, {
+                        id: unitId,
+                        text: unit,
+                        parent: '#',
+                        data: { Unit: unit, isUnitNode: true },
                     });
                 });
 
+                // Add Khoi nodes as second-level
+                unitKhoiPairs.forEach((pair) => {
+                    const [unit, khoi] = pair.split('|');
+                    const khoiId = `KHOI_${khoi}_${unit}`;
+                    nodeMap.set(khoiId, {
+                        id: khoiId,
+                        text: khoi,
+                        parent: `UNIT_${unit}`,
+                        data: { Unit: unit, Khoi: khoi, isKhoiNode: true },
+                    });
+                });
+
+                // Process department nodes
+                cleanedData.forEach((row) => {
+                    const nodeId = row.MaPhongBan;
+                    nodeMap.set(nodeId, {
+                        id: nodeId,
+                        text: `${row.MaPhongBan} - ${row.TenPhongBan} (Khối: ${row.Khoi}, Unit: ${row.Unit})`,
+                        parent: '#', // Will be updated
+                        data: {
+                            PhongBanHienTai: row.PhongBanHienTai,
+                            DonVi: row.DonVi,
+                            DonViCap2: row.DonViCap2,
+                            DonViCap3: row.DonViCap3,
+                            TenPhongBan: row.TenPhongBan,
+                            Unit: row.Unit,
+                            MaPhongBan: row.MaPhongBan,
+                            Khoi: row.Khoi,
+                        },
+                    });
+
+                    // Determine parent based on hierarchy within Khoi
+                    if (row.DonViCap3 && row.DonViCap3 !== row.TenPhongBan) {
+                        // Find parent in Đơn vị cấp 2
+                        const parentRow = cleanedData.find(
+                            (r) =>
+                                r.Unit === row.Unit &&
+                                r.Khoi === row.Khoi &&
+                                r.PhongBanHienTai === row.PhongBanHienTai &&
+                                r.DonVi === row.DonVi &&
+                                r.DonViCap2 === row.DonViCap2 &&
+                                r.DonViCap3 === row.DonViCap2 &&
+                                r.TenPhongBan === row.DonViCap2
+                        );
+                        if (parentRow) {
+                            parentMap.set(nodeId, parentRow.MaPhongBan);
+                        }
+                    } else if (
+                        row.DonViCap2 &&
+                        row.DonViCap2 !== row.TenPhongBan
+                    ) {
+                        // Find parent in Đơn vị
+                        const parentRow = cleanedData.find(
+                            (r) =>
+                                r.Unit === row.Unit &&
+                                r.Khoi === row.Khoi &&
+                                r.PhongBanHienTai === row.PhongBanHienTai &&
+                                r.DonVi === row.DonVi &&
+                                r.DonViCap2 === row.DonVi &&
+                                r.TenPhongBan === row.DonVi
+                        );
+                        if (parentRow) {
+                            parentMap.set(nodeId, parentRow.MaPhongBan);
+                        }
+                    } else if (row.DonVi && row.DonVi !== row.TenPhongBan) {
+                        // Find parent in Phong ban Hien tai
+                        const parentRow = cleanedData.find(
+                            (r) =>
+                                r.Unit === row.Unit &&
+                                r.Khoi === row.Khoi &&
+                                r.PhongBanHienTai === row.PhongBanHienTai &&
+                                r.DonVi === row.PhongBanHienTai &&
+                                r.TenPhongBan === row.PhongBanHienTai
+                        );
+                        if (parentRow) {
+                            parentMap.set(nodeId, parentRow.MaPhongBan);
+                        }
+                    } else {
+                        // Attach to Khoi node
+                        parentMap.set(nodeId, `KHOI_${row.Khoi}_${row.Unit}`);
+                    }
+                });
+
+                // Assign parents
                 nodeMap.forEach((node) => {
-                    if (node.parent !== '#' && !nodeMap.has(node.parent)) {
-                        node.parent = '#';
+                    if (!node.data.isUnitNode && !node.data.isKhoiNode) {
+                        const parentId = parentMap.get(node.id);
+                        if (parentId && nodeMap.has(parentId)) {
+                            node.parent = parentId;
+                        } else {
+                            // Fallback to Khoi node
+                            node.parent = `KHOI_${node.data.Khoi}_${node.data.Unit}`;
+                        }
                     }
                 });
 
@@ -138,12 +223,30 @@
                 );
 
                 fullTreeData.forEach((node) => {
-                    if (
-                        node.text.toLowerCase().includes(query) ||
-                        node.data.UnitID.toLowerCase().includes(query) ||
-                        node.data.ParentID.toLowerCase().includes(query)
-                    ) {
+                    let isMatch = false;
+                    if (node.data.isUnitNode) {
+                        // For Unit nodes, search by Unit value
+                        isMatch = node.text.toLowerCase().includes(query);
+                    } else if (node.data.isKhoiNode) {
+                        // For Khoi nodes, search by Khoi value
+                        isMatch = node.text.toLowerCase().includes(query);
+                    } else {
+                        // For department nodes, search across fields
+                        isMatch =
+                            node.text.toLowerCase().includes(query) ||
+                            node.data.MaPhongBan.toLowerCase().includes(
+                                query
+                            ) ||
+                            node.data.TenPhongBan.toLowerCase().includes(
+                                query
+                            ) ||
+                            node.data.Khoi.toLowerCase().includes(query) ||
+                            node.data.Unit.toLowerCase().includes(query);
+                    }
+
+                    if (isMatch) {
                         matchedNodes.add(node.id);
+                        // Include ancestors
                         let current = node;
                         while (
                             current.parent !== '#' &&
@@ -178,80 +281,104 @@
                 });
             }
 
+            // Process XLSX data (from file or fetch)
+            function processXlsxData(data) {
+                try {
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const sheetName = workbook.SheetNames[0];
+                    const csvData = XLSX.utils.sheet_to_csv(
+                        workbook.Sheets[sheetName]
+                    );
+
+                    Papa.parse(csvData, {
+                        header: true,
+                        skipEmptyLines: true,
+                        transformHeader: (header) =>
+                            header.trim().replace(/^"|"$/g, ''),
+                        transform: (value) =>
+                            value.trim().replace(/^"|"$/g, ''),
+                        complete: (results) => {
+                            fullTreeData = processAndCleanData(results.data);
+                            if (fullTreeData.length === 0) {
+                                $('#status')
+                                    .text(
+                                        'Không tìm thấy dữ liệu hợp lệ trong file.'
+                                    )
+                                    .addClass('text-red-600');
+                                return;
+                            }
+                            filteredTreeData = fullTreeData;
+                            renderTree(filteredTreeData);
+                            $('#status')
+                                .text(
+                                    'Cấu trúc tổ chức đã được tải thành công.'
+                                )
+                                .addClass('text-green-600');
+                            $('#tree-container').removeClass('hidden');
+                            $('#search-input').prop('disabled', false);
+                        },
+                        error: (err) => {
+                            console.error('Lỗi khi phân tích CSV:', err);
+                            $('#status')
+                                .text('Lỗi khi phân tích dữ liệu file.')
+                                .addClass('text-red-600');
+                        },
+                    });
+                } catch (err) {
+                    console.error('Lỗi khi đọc file XLSX:', err);
+                    $('#status')
+                        .text('Lỗi khi đọc file XLSX.')
+                        .addClass('text-red-600');
+                }
+            }
+
             // Handle file upload
             function handleFileUpload(file) {
                 if (!file.name.endsWith('.xlsx')) {
                     $('#status')
-                        .text('Please upload a valid XLSX file.')
+                        .text('Vui lòng tải lên file XLSX hợp lệ.')
                         .addClass('text-red-600');
                     return;
                 }
 
                 $('#status')
-                    .text('Processing file...')
+                    .text('Đang xử lý file...')
                     .removeClass('text-red-600');
                 $('#tree-container').addClass('hidden');
                 $('#search-input').prop('disabled', true);
 
                 const reader = new FileReader();
                 reader.onload = function (e) {
-                    try {
-                        const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
-                        const sheetName = workbook.SheetNames[0];
-                        const csvData = XLSX.utils.sheet_to_csv(
-                            workbook.Sheets[sheetName]
-                        );
-
-                        Papa.parse(csvData, {
-                            header: true,
-                            skipEmptyLines: true,
-                            transformHeader: (header) =>
-                                header.trim().replace(/^"|"$/g, ''),
-                            transform: (value) =>
-                                value.trim().replace(/^"|"$/g, ''),
-                            complete: (results) => {
-                                fullTreeData = processAndCleanData(
-                                    results.data
-                                );
-                                if (fullTreeData.length === 0) {
-                                    $('#status')
-                                        .text(
-                                            'No valid data found in the file.'
-                                        )
-                                        .addClass('text-red-600');
-                                    return;
-                                }
-                                filteredTreeData = fullTreeData;
-                                renderTree(filteredTreeData);
-                                $('#status')
-                                    .text(
-                                        'Organizational structure loaded successfully.'
-                                    )
-                                    .addClass('text-green-600');
-                                $('#tree-container').removeClass('hidden');
-                                $('#search-input').prop('disabled', false);
-                            },
-                            error: (err) => {
-                                console.error('Error parsing CSV:', err);
-                                $('#status')
-                                    .text('Error parsing file data.')
-                                    .addClass('text-red-600');
-                            },
-                        });
-                    } catch (err) {
-                        console.error('Error reading XLSX:', err);
-                        $('#status')
-                            .text('Error reading XLSX file.')
-                            .addClass('text-red-600');
-                    }
+                    processXlsxData(new Uint8Array(e.target.result));
                 };
                 reader.onerror = function () {
                     $('#status')
-                        .text('Error reading file.')
+                        .text('Lỗi khi đọc file.')
                         .addClass('text-red-600');
                 };
                 reader.readAsArrayBuffer(file);
+            }
+
+            // Load default XLSX file
+            function loadDefaultFile() {
+                $('#status')
+                    .text('Đang tải dữ liệu mặc định...')
+                    .removeClass('text-red-600');
+                fetch('data.xlsx')
+                    .then((response) => {
+                        if (!response.ok)
+                            throw new Error('Không thể tải file XLSX mặc định');
+                        return response.arrayBuffer();
+                    })
+                    .then((data) => processXlsxData(new Uint8Array(data)))
+                    .catch((err) => {
+                        console.error('Lỗi khi tải file mặc định:', err);
+                        $('#status')
+                            .text(
+                                'Không thể tải dữ liệu mặc định. Vui lòng tải lên file XLSX.'
+                            )
+                            .addClass('text-red-600');
+                    });
             }
 
             // Initialize file upload listener
@@ -275,6 +402,9 @@
                 const searchString = $(this).val();
                 debouncedSearch(searchString);
             });
+
+            // Load default file on page load
+            document.addEventListener('DOMContentLoaded', loadDefaultFile);
         </script>
     </body>
 </html>

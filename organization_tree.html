@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Organization Directory Tree</title>
+        <!-- Tailwind CSS for styling -->
+        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- jQuery for jsTree -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+        <!-- jsTree for tree rendering -->
+        <link
+            rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/themes/default/style.min.css"
+        />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.12/jstree.min.js"></script>
+        <!-- SheetJS for XLSX parsing -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+        <!-- PapaParse for CSV parsing -->
+        <script src="https://unpkg.com/papaparse@latest/papaparse.min.js"></script>
+        <style>
+            #tree-container {
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            .jstree-themeicon {
+                margin-right: 5px;
+            }
+            /* Adjust node text styling for readability */
+            .jstree-anchor {
+                font-size: 14px;
+                white-space: nowrap;
+            }
+        </style>
+    </head>
+    <body class="bg-gray-100 font-sans">
+        <div class="container mx-auto p-6">
+            <h1 class="text-3xl font-bold text-center text-blue-800 mb-6">
+                Organization Directory Tree
+            </h1>
+
+            <!-- File upload input -->
+            <div class="mb-4">
+                <label
+                    for="file-upload"
+                    class="block text-sm font-medium text-gray-700 mb-2"
+                    >Upload XLSX File</label
+                >
+                <input
+                    type="file"
+                    id="file-upload"
+                    accept=".xlsx"
+                    class="w-full p-2 border border-gray-300 rounded-lg"
+                />
+            </div>
+
+            <!-- Search input -->
+            <div class="mb-4">
+                <input
+                    type="text"
+                    id="search-input"
+                    class="w-full p-2 border border-gray-300 rounded-lg"
+                    placeholder="Search units..."
+                    disabled
+                />
+            </div>
+
+            <!-- Status message -->
+            <div id="status" class="text-center text-gray-600 mb-4">
+                Please upload an XLSX file to display the organizational
+                structure.
+            </div>
+
+            <!-- Tree container -->
+            <div
+                id="tree-container"
+                class="bg-white p-4 rounded-lg shadow-lg hidden"
+            ></div>
+        </div>
+
+        <script>
+            let fullTreeData = [];
+            let filteredTreeData = [];
+
+            // Debounce function to limit search frequency
+            function debounce(func, wait) {
+                let timeout;
+                return function (...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+
+            // Process and clean data
+            function processAndCleanData(data) {
+                const cleanedData = data
+                    .map((row) => ({
+                        SetID: row['SetID']?.trim() || '',
+                        ID: row['ID đơn vị']?.trim() || '',
+                        Name: row['Tên đơn vị']?.trim() || '',
+                        ParentID: row['ID đơn vị cha']?.trim() || '',
+                    }))
+                    .filter((row) => row.ID && row.Name);
+
+                const nodeMap = new Map();
+                cleanedData.forEach((row) => {
+                    nodeMap.set(row.ID, {
+                        id: row.ID,
+                        text: `${row.SetID} - ${row.Name} (ID: ${
+                            row.ID
+                        }, Parent ID: ${row.ParentID || 'None'})`,
+                        parent: row.ParentID || '#',
+                        data: {
+                            SetID: row.SetID,
+                            UnitID: row.ID,
+                            ParentID: row.ParentID || 'None',
+                        },
+                    });
+                });
+
+                nodeMap.forEach((node) => {
+                    if (node.parent !== '#' && !nodeMap.has(node.parent)) {
+                        node.parent = '#';
+                    }
+                });
+
+                return Array.from(nodeMap.values());
+            }
+
+            // Filter nodes based on search query
+            function filterNodes(query) {
+                if (!query) return fullTreeData;
+
+                query = query.toLowerCase();
+                const matchedNodes = new Set();
+                const nodeMap = new Map(
+                    fullTreeData.map((node) => [node.id, node])
+                );
+
+                fullTreeData.forEach((node) => {
+                    if (
+                        node.text.toLowerCase().includes(query) ||
+                        node.data.UnitID.toLowerCase().includes(query) ||
+                        node.data.ParentID.toLowerCase().includes(query)
+                    ) {
+                        matchedNodes.add(node.id);
+                        let current = node;
+                        while (
+                            current.parent !== '#' &&
+                            nodeMap.has(current.parent)
+                        ) {
+                            matchedNodes.add(current.parent);
+                            current = nodeMap.get(current.parent);
+                        }
+                    }
+                });
+
+                return fullTreeData.filter((node) => matchedNodes.has(node.id));
+            }
+
+            // Render tree with jsTree
+            function renderTree(data) {
+                $('#tree-container').jstree('destroy').empty();
+                $('#tree-container').jstree({
+                    core: {
+                        data: data,
+                        themes: {
+                            name: 'default',
+                            dots: true,
+                            icons: true,
+                        },
+                    },
+                    plugins: ['search'],
+                    search: {
+                        show_only_matches: true,
+                        show_only_matches_children: true,
+                    },
+                });
+            }
+
+            // Handle file upload
+            function handleFileUpload(file) {
+                if (!file.name.endsWith('.xlsx')) {
+                    $('#status')
+                        .text('Please upload a valid XLSX file.')
+                        .addClass('text-red-600');
+                    return;
+                }
+
+                $('#status')
+                    .text('Processing file...')
+                    .removeClass('text-red-600');
+                $('#tree-container').addClass('hidden');
+                $('#search-input').prop('disabled', true);
+
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    try {
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+                        const sheetName = workbook.SheetNames[0];
+                        const csvData = XLSX.utils.sheet_to_csv(
+                            workbook.Sheets[sheetName]
+                        );
+
+                        Papa.parse(csvData, {
+                            header: true,
+                            skipEmptyLines: true,
+                            transformHeader: (header) =>
+                                header.trim().replace(/^"|"$/g, ''),
+                            transform: (value) =>
+                                value.trim().replace(/^"|"$/g, ''),
+                            complete: (results) => {
+                                fullTreeData = processAndCleanData(
+                                    results.data
+                                );
+                                if (fullTreeData.length === 0) {
+                                    $('#status')
+                                        .text(
+                                            'No valid data found in the file.'
+                                        )
+                                        .addClass('text-red-600');
+                                    return;
+                                }
+                                filteredTreeData = fullTreeData;
+                                renderTree(filteredTreeData);
+                                $('#status')
+                                    .text(
+                                        'Organizational structure loaded successfully.'
+                                    )
+                                    .addClass('text-green-600');
+                                $('#tree-container').removeClass('hidden');
+                                $('#search-input').prop('disabled', false);
+                            },
+                            error: (err) => {
+                                console.error('Error parsing CSV:', err);
+                                $('#status')
+                                    .text('Error parsing file data.')
+                                    .addClass('text-red-600');
+                            },
+                        });
+                    } catch (err) {
+                        console.error('Error reading XLSX:', err);
+                        $('#status')
+                            .text('Error reading XLSX file.')
+                            .addClass('text-red-600');
+                    }
+                };
+                reader.onerror = function () {
+                    $('#status')
+                        .text('Error reading file.')
+                        .addClass('text-red-600');
+                };
+                reader.readAsArrayBuffer(file);
+            }
+
+            // Initialize file upload listener
+            document
+                .getElementById('file-upload')
+                .addEventListener('change', function (e) {
+                    const file = e.target.files[0];
+                    if (file) {
+                        handleFileUpload(file);
+                    }
+                });
+
+            // Initialize debounced search
+            const debouncedSearch = debounce(function (query) {
+                filteredTreeData = filterNodes(query);
+                renderTree(filteredTreeData);
+            }, 300);
+
+            // Search input listener
+            $('#search-input').on('keyup', function () {
+                const searchString = $(this).val();
+                debouncedSearch(searchString);
+            });
+        </script>
+    </body>
+</html>

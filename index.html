@@ -31,6 +31,15 @@
                 font-size: 14px;
                 white-space: nowrap;
             }
+            /* Reduce opacity for inactive nodes (Status: I) */
+            .inactive-node {
+                opacity: 0.5;
+                transition: opacity 0.3s ease;
+            }
+            /* Hover to restore full opacity for visibility */
+            .inactive-node:hover {
+                opacity: 1;
+            }
         </style>
     </head>
     <body class="bg-gray-100 font-sans">
@@ -95,32 +104,43 @@
             function processAndCleanData(data) {
                 const cleanedData = data
                     .map((row) => ({
-                        SetID: row['SetID']?.trim() || '',
-                        ID: row['ID đơn vị']?.trim() || '',
-                        Name: row['Tên đơn vị']?.trim() || '',
-                        ParentID: row['ID đơn vị cha']?.trim() || '',
+                        SetID: row["SetID"]?.trim() || "",
+                        Description: row["Mô tả"]?.trim() || "",
+                        Node: row["Node"]?.trim() || "",
+                        EffectiveDate: row["Ngày hiệu lực"]?.trim() || "",
+                        DepartmentName: row["Tên phòng ban"]?.trim() || "",
+                        ParentNode: row["Parent Node"]?.trim() || "",
+                        Status: row["Trạng thái"]?.trim() || "",
                     }))
-                    .filter((row) => row.ID && row.Name);
+                    .filter((row) => row.Node && row.DepartmentName);
 
                 const nodeMap = new Map();
                 cleanedData.forEach((row) => {
-                    nodeMap.set(row.ID, {
-                        id: row.ID,
-                        text: `${row.SetID} - ${row.Name} (ID: ${
-                            row.ID
-                        }, Parent ID: ${row.ParentID || 'None'})`,
-                        parent: row.ParentID || '#',
+                    nodeMap.set(row.Node, {
+                        id: row.Node,
+                        text: `${row.SetID} - ${row.DepartmentName} (Node: ${row.Node}, Parent: ${row.ParentNode || "None"}, Status: ${row.Status})`,
+                        parent: row.ParentNode || "#",
                         data: {
                             SetID: row.SetID,
-                            UnitID: row.ID,
-                            ParentID: row.ParentID || 'None',
+                            Description: row.Description,
+                            Node: row.Node,
+                            EffectiveDate: row.EffectiveDate,
+                            DepartmentName: row.DepartmentName,
+                            ParentNode: row.ParentNode || "None",
+                            Status: row.Status,
                         },
+                        state: {
+                            opened: false // Default closed for better initial view
+                        },
+                        li_attr: {
+                            class: row.Status === "I" ? "inactive-node" : ""
+                        }
                     });
                 });
 
                 nodeMap.forEach((node) => {
-                    if (node.parent !== '#' && !nodeMap.has(node.parent)) {
-                        node.parent = '#';
+                    if (node.parent !== "#" && !nodeMap.has(node.parent)) {
+                        node.parent = "#";
                     }
                 });
 
@@ -140,13 +160,18 @@
                 fullTreeData.forEach((node) => {
                     if (
                         node.text.toLowerCase().includes(query) ||
-                        node.data.UnitID.toLowerCase().includes(query) ||
-                        node.data.ParentID.toLowerCase().includes(query)
+                        node.data.SetID.toLowerCase().includes(query) ||
+                        node.data.Description.toLowerCase().includes(query) ||
+                        node.data.Node.toLowerCase().includes(query) ||
+                        node.data.EffectiveDate.toLowerCase().includes(query) ||
+                        node.data.DepartmentName.toLowerCase().includes(query) ||
+                        node.data.ParentNode.toLowerCase().includes(query) ||
+                        node.data.Status.toLowerCase().includes(query)
                     ) {
                         matchedNodes.add(node.id);
                         let current = node;
                         while (
-                            current.parent !== '#' &&
+                            current.parent !== "#" &&
                             nodeMap.has(current.parent)
                         ) {
                             matchedNodes.add(current.parent);
@@ -160,17 +185,17 @@
 
             // Render tree with jsTree
             function renderTree(data) {
-                $('#tree-container').jstree('destroy').empty();
-                $('#tree-container').jstree({
+                $("#tree-container").jstree("destroy").empty();
+                $("#tree-container").jstree({
                     core: {
                         data: data,
                         themes: {
-                            name: 'default',
+                            name: "default",
                             dots: true,
                             icons: true,
                         },
                     },
-                    plugins: ['search'],
+                    plugins: ["search"],
                     search: {
                         show_only_matches: true,
                         show_only_matches_children: true,
@@ -180,24 +205,24 @@
 
             // Handle file upload
             function handleFileUpload(file) {
-                if (!file.name.endsWith('.xlsx')) {
-                    $('#status')
-                        .text('Please upload a valid XLSX file.')
-                        .addClass('text-red-600');
+                if (!file.name.endsWith(".xlsx")) {
+                    $("#status")
+                        .text("Please upload a valid XLSX file.")
+                        .addClass("text-red-600");
                     return;
                 }
 
-                $('#status')
-                    .text('Processing file...')
-                    .removeClass('text-red-600');
-                $('#tree-container').addClass('hidden');
-                $('#search-input').prop('disabled', true);
+                $("#status")
+                    .text("Processing file...")
+                    .removeClass("text-red-600");
+                $("#tree-container").addClass("hidden");
+                $("#search-input").prop("disabled", true);
 
                 const reader = new FileReader();
                 reader.onload = function (e) {
                     try {
                         const data = new Uint8Array(e.target.result);
-                        const workbook = XLSX.read(data, { type: 'array' });
+                        const workbook = XLSX.read(data, { type: "array" });
                         const sheetName = workbook.SheetNames[0];
                         const csvData = XLSX.utils.sheet_to_csv(
                             workbook.Sheets[sheetName]
@@ -207,57 +232,57 @@
                             header: true,
                             skipEmptyLines: true,
                             transformHeader: (header) =>
-                                header.trim().replace(/^"|"$/g, ''),
+                                header.trim().replace(/^"|"$/g, ""),
                             transform: (value) =>
-                                value.trim().replace(/^"|"$/g, ''),
+                                value.trim().replace(/^"|"$/g, ""),
                             complete: (results) => {
                                 fullTreeData = processAndCleanData(
                                     results.data
                                 );
                                 if (fullTreeData.length === 0) {
-                                    $('#status')
+                                    $("#status")
                                         .text(
-                                            'No valid data found in the file.'
+                                            "No valid data found in the file."
                                         )
-                                        .addClass('text-red-600');
+                                        .addClass("text-red-600");
                                     return;
                                 }
                                 filteredTreeData = fullTreeData;
                                 renderTree(filteredTreeData);
-                                $('#status')
+                                $("#status")
                                     .text(
-                                        'Organizational structure loaded successfully.'
+                                        "Organizational structure loaded successfully."
                                     )
-                                    .addClass('text-green-600');
-                                $('#tree-container').removeClass('hidden');
-                                $('#search-input').prop('disabled', false);
+                                    .addClass("text-green-600");
+                                $("#tree-container").removeClass("hidden");
+                                $("#search-input").prop("disabled", false);
                             },
                             error: (err) => {
-                                console.error('Error parsing CSV:', err);
-                                $('#status')
-                                    .text('Error parsing file data.')
-                                    .addClass('text-red-600');
+                                console.error("Error parsing CSV:", err);
+                                $("#status")
+                                    .text("Error parsing file data.")
+                                    .addClass("text-red-600");
                             },
                         });
                     } catch (err) {
-                        console.error('Error reading XLSX:', err);
-                        $('#status')
-                            .text('Error reading XLSX file.')
-                            .addClass('text-red-600');
+                        console.error("Error reading XLSX:", err);
+                        $("#status")
+                            .text("Error reading XLSX file.")
+                            .addClass("text-red-600");
                     }
                 };
                 reader.onerror = function () {
-                    $('#status')
-                        .text('Error reading file.')
-                        .addClass('text-red-600');
+                    $("#status")
+                        .text("Error reading file.")
+                        .addClass("text-red-600");
                 };
                 reader.readAsArrayBuffer(file);
             }
 
             // Initialize file upload listener
             document
-                .getElementById('file-upload')
-                .addEventListener('change', function (e) {
+                .getElementById("file-upload")
+                .addEventListener("change", function (e) {
                     const file = e.target.files[0];
                     if (file) {
                         handleFileUpload(file);
@@ -271,7 +296,7 @@
             }, 300);
 
             // Search input listener
-            $('#search-input').on('keyup', function () {
+            $("#search-input").on("keyup", function () {
                 const searchString = $(this).val();
                 debouncedSearch(searchString);
             });
